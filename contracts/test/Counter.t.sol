@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {Counter} from "../src/Counter.sol";
 
 contract CounterTest is Test {
+    // UNLu Class 4: verify initial state, changes, events and fuzzing in CI.
     Counter public counter;
 
     function setUp() public {
