@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import time
 from dataclasses import asdict, dataclass, field
 
@@ -45,7 +46,7 @@ class Block:
             "transactions": self.transactions,
             "timestamp": self.timestamp,
         }
-        return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        return json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
 
     def compute_hash(self, nonce: int | None = None) -> str:
         n = self.nonce if nonce is None else nonce
@@ -81,13 +82,50 @@ def new_block(chain: list[Block], transactions: list[dict]) -> Block:
 
 
 def validate_chain(chain: list[Block]) -> tuple[bool, str]:
-    """TODO(TF): validate a chain you RECEIVED from another node.
+    """Validate the baseline's canonical genesis, links and fixed-difficulty PoW.
 
-    Never trust a chain that arrived over the network. Think about: the
-    genesis, the indexes, previous_hash links, recomputing every hash and the
-    difficulty each block claims. Return (ok, reason).
+    This is structural validation, not balances, signatures or consensus.
+    The network difficulty remains DIFFICULTY, never a value supplied by a peer.
     """
-    raise NotImplementedError("TODO(TF): validate a received chain")
+    if not isinstance(chain, list) or not chain:
+        return False, "chain must be a non-empty list"
+    for position, block in enumerate(chain):
+        if not isinstance(block, Block):
+            return False, f"block {position}: expected Block"
+        if type(block.index) is not int or block.index != position:
+            return False, f"block {position}: invalid index"
+        if type(block.nonce) is not int or block.nonce < 0:
+            return False, f"block {position}: invalid nonce"
+        if type(block.timestamp) not in (int, float):
+            return False, f"block {position}: invalid timestamp"
+        try:
+            if not math.isfinite(block.timestamp) or block.timestamp < 0:
+                return False, f"block {position}: invalid timestamp"
+        except OverflowError:
+            return False, f"block {position}: invalid timestamp"
+        if not isinstance(block.transactions, list) or not all(
+            isinstance(tx, dict) for tx in block.transactions
+        ):
+            return False, f"block {position}: invalid transactions"
+        for value in (block.hash, block.previous_hash):
+            if not isinstance(value, str) or len(value) != 64 or any(
+                char not in "0123456789abcdef" for char in value
+            ):
+                return False, f"block {position}: invalid hash format"
+        try:
+            calculated = block.compute_hash()
+        except (TypeError, ValueError, OverflowError, RecursionError):
+            return False, f"block {position}: invalid canonical JSON"
+        if calculated != block.hash:
+            return False, f"block {position}: hash mismatch"
+        if not block.hash.startswith("0" * DIFFICULTY):
+            return False, f"block {position}: insufficient proof of work"
+        expected_previous = GENESIS_PREV if position == 0 else chain[position - 1].hash
+        if block.previous_hash != expected_previous:
+            return False, f"block {position}: broken previous_hash link"
+    if chain[0].to_dict() != genesis().to_dict():
+        return False, "non-canonical genesis"
+    return True, "valid baseline chain"
 
 
 def choose_best_chain(candidates: list[list[Block]]) -> list[Block] | None:
