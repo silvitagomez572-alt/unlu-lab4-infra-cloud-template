@@ -1,0 +1,3 @@
+# Future stage 8.4. Not authorized to deploy with the current memory margin.
+# Generated PEERS also changes, so this upgrade may replace pow-0.
+replicaCount: 3

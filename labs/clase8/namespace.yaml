@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: bc-clase8
+  labels:
+    course: unlu
+    lab: clase8

@@ -1,0 +1,19 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: pow-clase8
+  namespace: bc-clase8
+  labels:
+    release: kube-prom
+    lab: clase8
+spec:
+  namespaceSelector:
+    matchNames:
+      - bc-clase8
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pow
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s

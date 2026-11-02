@@ -1,0 +1,18 @@
+# Prepared only: release pow, namespace bc-clase8. No image built or deployed.
+# Reuses helm/charts/pow together with its values-k3s.yaml.
+replicaCount: 1
+image:
+  repository: unlu-lab8-pow
+  tag: lab8-local
+  pullPolicy: Never
+persistence:
+  storageClassName: local-path
+  size: 256Mi
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+peers: []
