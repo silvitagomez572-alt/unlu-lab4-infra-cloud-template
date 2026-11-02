@@ -1,0 +1,42 @@
+name: lab8-grafana-capture-only
+on:
+  push:
+    branches: [clase8/captura-grafana]
+    paths: [.github/workflows/lab8-grafana-capture.yml, labs/clase8/capture/**]
+permissions:
+  contents: read
+concurrency:
+  group: unlu-lab8-grafana-capture-only
+  cancel-in-progress: false
+jobs:
+  capture:
+    if: github.repository == 'silvitagomez572-alt/unlu-lab4-infra-cloud-template' && github.ref == 'refs/heads/clase8/captura-grafana'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: d4b159c57e208a8a433ff6ac97b3b94098518aa0
+          path: source
+          persist-credentials: false
+      - name: Install only dependencies for live capture
+        run: |
+          python3 -m venv "$RUNNER_TEMP/lab8-capture-venv"
+          "$RUNNER_TEMP/lab8-capture-venv/bin/pip" install --disable-pip-version-check -r source/pow/requirements.txt playwright==1.56.0
+          "$RUNNER_TEMP/lab8-capture-venv/bin/python" -m playwright install --with-deps chromium
+      - name: Live Grafana capture without Kubernetes or builds
+        run: '"$RUNNER_TEMP/lab8-capture-venv/bin/python" labs/clase8/capture/capture.py'
+      - name: Verify cleanup and bounded evidence
+        id: preserve
+        if: always()
+        run: python3 labs/clase8/capture/capture.py cleanup
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.preserve.outputs.upload_allowed == 'true'
+        with:
+          name: lab8-grafana-${{ github.run_id }}
+          path: evidence-grafana/
+          retention-days: 1
+          if-no-files-found: error

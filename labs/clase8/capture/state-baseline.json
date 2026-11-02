@@ -1,0 +1,142 @@
+{
+  "source_run": 41532100541,
+  "source_sha": "d4b159c57e208a8a433ff6ac97b3b94098518aa0",
+  "synthetic_only": true,
+  "nodes": [
+    {
+      "pod": "pow-0",
+      "sha256": "06f0ec7870d511bac18fe23bb31c27e46a7a7f6b91398e3e1080a7fd1b286f30",
+      "chain": [
+        {
+          "index": 0,
+          "previous_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+          "transactions": [
+            {
+              "msg": "genesis infra-cloud"
+            }
+          ],
+          "timestamp": 0.0,
+          "nonce": 1316,
+          "hash": "00072d6836f4b06e12a8d5f0d1c788c6f77aad4a3c9c0fb3e8e4dc0cde518089"
+        },
+        {
+          "index": 1,
+          "previous_hash": "00072d6836f4b06e12a8d5f0d1c788c6f77aad4a3c9c0fb3e8e4dc0cde518089",
+          "transactions": [
+            {
+              "sender": "lab8-synthetic-A",
+              "to": "lab8-synthetic-B",
+              "amount": 1.0,
+              "received_at": 1793656350.3754802
+            }
+          ],
+          "timestamp": 1793656350.670961,
+          "nonce": 4653,
+          "hash": "000e8abee85c072c99538636eede8d1f52017700f1e48a648e382718db70cd4c"
+        },
+        {
+          "index": 2,
+          "previous_hash": "000e8abee85c072c99538636eede8d1f52017700f1e48a648e382718db70cd4c",
+          "transactions": [
+            {
+              "msg": "empty block"
+            }
+          ],
+          "timestamp": 1793656625.8676095,
+          "nonce": 4733,
+          "hash": "00092cfe4670ea543921b74793d28df6452748f82a535b41df1697c14b40426e"
+        },
+        {
+          "index": 3,
+          "previous_hash": "00092cfe4670ea543921b74793d28df6452748f82a535b41df1697c14b40426e",
+          "transactions": [
+            {
+              "msg": "empty block"
+            }
+          ],
+          "timestamp": 1793656646.1722376,
+          "nonce": 121,
+          "hash": "0006740dc29994c6fbeaf806a07f8759c45471f66267c5597787c81c956a335f"
+        },
+        {
+          "index": 4,
+          "previous_hash": "0006740dc29994c6fbeaf806a07f8759c45471f66267c5597787c81c956a335f",
+          "transactions": [
+            {
+              "msg": "empty block"
+            }
+          ],
+          "timestamp": 1793656666.4657333,
+          "nonce": 6443,
+          "hash": "0001b7d84a5b9f2c617a6c63df6aebb107e1792f94e42588d29d2dc6b23a57bb"
+        }
+      ]
+    },
+    {
+      "pod": "pow-1",
+      "sha256": "1248c0101076f6a68c346f18e804f91546a9430d49658f05ae818beafaed57f0",
+      "chain": [
+        {
+          "index": 0,
+          "previous_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+          "transactions": [
+            {
+              "msg": "genesis infra-cloud"
+            }
+          ],
+          "timestamp": 0.0,
+          "nonce": 1316,
+          "hash": "00072d6836f4b06e12a8d5f0d1c788c6f77aad4a3c9c0fb3e8e4dc0cde518089"
+        },
+        {
+          "index": 1,
+          "previous_hash": "00072d6836f4b06e12a8d5f0d1c788c6f77aad4a3c9c0fb3e8e4dc0cde518089",
+          "transactions": [
+            {
+              "sender": "synthetic-node-1",
+              "to": "synthetic-lab8",
+              "amount": 1.0,
+              "received_at": 1793656443.8009655
+            }
+          ],
+          "timestamp": 1793656444.0951893,
+          "nonce": 132,
+          "hash": "000f37ea866ba142d258532e72a3d553f6d8bbe0958fb60dc401c6c288f7a5fc"
+        }
+      ]
+    },
+    {
+      "pod": "pow-2",
+      "sha256": "af404cdd04e48615ef4295146baa0e0d3b2568a3e406ce2267d445a84357042d",
+      "chain": [
+        {
+          "index": 0,
+          "previous_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+          "transactions": [
+            {
+              "msg": "genesis infra-cloud"
+            }
+          ],
+          "timestamp": 0.0,
+          "nonce": 1316,
+          "hash": "00072d6836f4b06e12a8d5f0d1c788c6f77aad4a3c9c0fb3e8e4dc0cde518089"
+        },
+        {
+          "index": 1,
+          "previous_hash": "00072d6836f4b06e12a8d5f0d1c788c6f77aad4a3c9c0fb3e8e4dc0cde518089",
+          "transactions": [
+            {
+              "sender": "synthetic-node-2",
+              "to": "synthetic-lab8",
+              "amount": 2.0,
+              "received_at": 1793656444.5686414
+            }
+          ],
+          "timestamp": 1793656444.8301115,
+          "nonce": 1831,
+          "hash": "0000e3cc5b17a313e9fe01fa0932742938f2e6a76da89ecc15e98e9e12817699"
+        }
+      ]
+    }
+  ]
+}
