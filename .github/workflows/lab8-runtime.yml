@@ -40,7 +40,7 @@ jobs:
           cd "$RUNNER_TEMP/lab8-tools"
           curl -fsSLO --retry 2 https://github.com/k3d-io/k3d/releases/download/v5.8.3/k3d-linux-amd64
           curl -fsSLO --retry 2 https://github.com/k3d-io/k3d/releases/download/v5.8.3/checksums.txt
-          grep ' k3d-linux-amd64$' checksums.txt | sha256sum -c -
+          awk '$2=="_dist/k3d-linux-amd64" {print $1 "  k3d-linux-amd64"}' checksums.txt | sha256sum -c -
           chmod +x k3d-linux-amd64
           sudo install k3d-linux-amd64 /usr/local/bin/k3d
           curl -fsSLO --retry 2 https://get.helm.sh/helm-v4.3.1-linux-amd64.tar.gz
