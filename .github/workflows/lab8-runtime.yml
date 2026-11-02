@@ -76,10 +76,23 @@ jobs:
         if: always()
         run: python3 labs/clase8/runner/verify_runtime.py collect
       - uses: actions/upload-artifact@v4
+        id: preserve
         if: always() && steps.collect.outputs.upload_allowed == 'true'
         with:
           name: lab8-runtime-${{ github.run_id }}
           path: evidence/
+          retention-days: 1
+          if-no-files-found: error
+          include-hidden-files: false
+      - name: Stop only the created cluster after evidence preservation
+        if: always()
+        run: python3 labs/clase8/runner/verify_runtime.py stop
+      - name: Preserve shutdown verification
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lab8-shutdown-${{ github.run_id }}
+          path: cleanup-evidence/
           retention-days: 1
           if-no-files-found: error
           include-hidden-files: false

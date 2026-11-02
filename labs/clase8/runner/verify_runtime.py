@@ -159,24 +159,55 @@ def observability():
         datasource=next(x for x in http(graf+'/api/datasources',auth=auth) if x['type']=='prometheus')
         dashboard=json.loads((SOURCE/'labs/clase8/dashboard-pow.json').read_text())
         dashboard['panels'][0]['datasource']={'type':'prometheus','uid':datasource['uid']}
+        dashboard['panels'][0]['gridPos']={'x':0,'y':0,'w':24,'h':11}
+        dashboard['panels'][1]['gridPos']={'x':0,'y':11,'w':24,'h':5}
+        dashboard['panels'][1]['title']='Entorno verificado de Lab 8'
+        dashboard['panels'][1]['options']['content']='Run '+os.environ['GITHUB_RUN_ID']+' | unlu-lab8-ci | bc-clase8 | source '+EXPECTED+' | Independent chains, no synchronization.'
         imported=http(graf+'/api/dashboards/db',{'dashboard':dashboard,'overwrite':False},auth)
         assert imported['status']=='success';write('grafana-import.json',imported)
         end=int(time.time())+15
         write('grafana-dashboard-export.json',http(graf+'/api/dashboards/uid/unlu-lab8-pow',auth=auth))
         write('prometheus-height-range.json',http(prom+'/api/v1/query_range?'+urlencode({'query':expr,'start':start,'end':end,'step':15})))
         from playwright.sync_api import sync_playwright
+        browser_diagnostics={'requested_url':graf+'/login','console':[],'page_errors':[],'responses':[]}
+        def scrub(value):
+            import re
+            value=str(value).replace(password,'[REDACTED]')
+            return re.sub(r'(?:ya29[.][A-Za-z0-9_-]+|eyJ[A-Za-z0-9_-]+[.][A-Za-z0-9_-]+[.][A-Za-z0-9_-]+)','[REDACTED]',value)[:1500]
         with sync_playwright() as pw:
             browser=pw.chromium.launch(headless=True)
-            page=browser.new_page(viewport={'width':1600,'height':1000})
-            page.goto(graf+'/login');page.get_by_placeholder('email or username').fill('admin');page.get_by_placeholder('password').fill(password)
-            page.get_by_role('button',name='Log in',exact=True).click()
-            page.wait_for_url('**/',timeout=30000)
-            page.goto(graf+'/d/unlu-lab8-pow?from='+str(start*1000)+'&to='+str(end*1000))
-            page.get_by_text('Block height per node',exact=True).wait_for(timeout=30000)
-            page.wait_for_timeout(7000)
-            page.screenshot(path=str(E/'GRAFANA_POW_ORIGINAL.png'),full_page=True)
-            browser.close()
-        write('observability-result.json',{'result':'PASS for API metric assertions; screenshot requires human visual review','height_samples':heights,'dashboard_uid':'unlu-lab8-pow','duration_metric':'elapsed_seconds in HTTP responses, not a Prometheus histogram'})
+            context=browser.new_context(viewport={'width':1600,'height':1100})
+            page=context.new_page()
+            page.on('console',lambda m: browser_diagnostics['console'].append({'type':m.type,'text':scrub(m.text)}))
+            page.on('pageerror',lambda e: browser_diagnostics['page_errors'].append(scrub(e)))
+            page.on('response',lambda r: browser_diagnostics['responses'].append({'url':r.url.split('?')[0],'status':r.status}) if r.url.startswith(graf) else None)
+            try:
+                response=page.goto(graf+'/login',wait_until='networkidle',timeout=30000)
+                browser_diagnostics['login']={'status':response.status if response else None,'final_url':page.url.split('?')[0]}
+                browser_diagnostics['form']=page.evaluate("""() => ({title:document.title,readyState:document.readyState,inputs:[...document.querySelectorAll('input')].map(e=>({type:e.type,name:e.name,placeholder:e.placeholder,visible:!!e.getClientRects().length}))})""")
+                page.screenshot(path=str(E/'GRAFANA_LOGIN_DIAGNOSTICO.png'),full_page=True)
+                # Session cookie stays only in this ephemeral browser context; no secret output.
+                login=context.request.post(graf+'/login',data={'user':'admin','password':password},timeout=15000)
+                browser_diagnostics['session_login_status']=login.status
+                assert login.ok,'Grafana session login failed'
+                identity=context.request.get(graf+'/api/user',timeout=15000)
+                assert identity.ok and identity.json().get('login')=='admin','Authenticated Grafana identity not verified'
+                browser_diagnostics['session_verified']=True
+                response=page.goto(graf+'/d/unlu-lab8-pow?from='+str(start*1000)+'&to='+str(end*1000),wait_until='networkidle',timeout=30000)
+                browser_diagnostics['dashboard']={'status':response.status if response else None,'url':page.url}
+                page.get_by_text('Block height per node',exact=True).first.wait_for(timeout=30000)
+                for pod in ['pow-0','pow-1','pow-2']:page.get_by_text(pod,exact=True).first.wait_for(state='visible',timeout=20000)
+                page.wait_for_timeout(3000)
+                page.screenshot(path=str(E/'CAPTURA_GRAFANA_LAB8.png'),full_page=True)
+                browser_diagnostics['capture_saved']=True
+            except Exception as exc:
+                browser_diagnostics['error']=scrub(exc)
+                page.screenshot(path=str(E/'GRAFANA_FALLO_ORIGINAL.png'),full_page=True,timeout=10000)
+                raise
+            finally:
+                write('grafana-browser-diagnostics.json',browser_diagnostics)
+                context.close();browser.close()
+        write('observability-result.json',{'result':'PASS for metric and browser assertions; original PNG still requires visual review','height_samples':heights,'dashboard_uid':'unlu-lab8-pow','duration_metric':'elapsed_seconds is not a Prometheus histogram'})
     finally:
         for proc in forwards:proc.terminate()
         for proc in forwards:proc.wait(timeout=10)
@@ -186,11 +217,29 @@ def collect():
     for label,args in [('final-pods',['get','pods','-A','-o','wide']),('final-pvc',['get','pvc','-A','-o','wide']),('final-events',['get','events','-A','--sort-by=.lastTimestamp'])]:
         run(label,K+args,check=False)
     for i in range(3):kube('pow-log-'+str(i),['logs',f'pow-{i}','--tail=150'],check=False)
+    snapshots=[]
+    for i in range(3):
+        result=run('state-snapshot-'+str(i),K+['-n',NS,'exec',f'pow-{i}','--','python','-c',"from pathlib import Path; import hashlib,json; p=Path('/data/chain.json'); b=p.read_bytes(); assert len(b)<1048576; print(json.dumps({'path':'/data/chain.json','bytes':len(b),'sha256':hashlib.sha256(b).hexdigest(),'chain':json.loads(b)}))"],check=False)
+        try:
+            value=json.loads(result);assert value['chain'];snapshots.append({'pod':f'pow-{i}','sha256':value['sha256'],'height':value['chain'][-1]['index']})
+        except (ValueError,KeyError,AssertionError):pass
+    write('state-preservation.json',{'result':'PASS' if len(snapshots)==3 else 'PARTIAL','snapshots':snapshots,'note':'chain.json copied before cluster stop; baseline pending transactions are in memory, not persistent.'})
     paths=[p for p in E.rglob('*') if p.is_file() and p.name!='SHA256.json']
     assert sum(p.stat().st_size for p in paths)<19*1024**2,'Artifact exceeds safety bound; review before upload'
     write('SHA256.json',{'files':[{'path':p.relative_to(E).as_posix(),'bytes':p.stat().st_size,'sha256':hashlib.sha256(p.read_bytes()).hexdigest()} for p in sorted(paths)],'note':'Hash integrity only; inspect each result before assigning academic PASS.'})
-    assert sum(p.stat().st_size for p in E.rglob('*') if p.is_file())<20*1024**2
+    assert sum(p.stat().st_size for p in E.rglob('*') if p.is_file())<19*1024**2
     with open(os.environ['GITHUB_OUTPUT'],'a') as output:output.write('upload_allowed=true\n')
 
+
+def stop_created_cluster():
+    assert os.environ.get('GITHUB_ACTIONS')=='true' and os.environ.get('RUNNER_ENVIRONMENT')=='github-hosted'
+    C=ROOT/'cleanup-evidence';C.mkdir(exist_ok=True)
+    before=subprocess.run(['docker','ps','--filter','name=k3d-unlu-lab8-ci-','--format','{{.Names}}'],capture_output=True,text=True,timeout=15)
+    stopped=subprocess.run(['k3d','cluster','stop','unlu-lab8-ci'],capture_output=True,text=True,timeout=90)
+    after=subprocess.run(['docker','ps','--filter','name=k3d-unlu-lab8-ci-','--format','{{.Names}}'],capture_output=True,text=True,timeout=15)
+    record={'utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),'cluster':'unlu-lab8-ci','action':'stop only; no explicit PVC deletion','before':before.stdout,'stop_exit_code':stopped.returncode,'stdout':stopped.stdout,'stderr':stopped.stderr,'running_after':after.stdout,'result':'PASS' if stopped.returncode==0 and after.returncode==0 and not after.stdout.strip() else 'FAIL','host_disposal':'GitHub discards this temporary hosted runner after job completion.'}
+    (C/'APAGADO_VERIFICADO.json').write_text(json.dumps(record,indent=2))
+    assert record['result']=='PASS','Cluster stop could not be verified'
+
 if __name__=='__main__':
-    {'runtime':runtime,'observability':observability,'collect':collect}[sys.argv[1]]()
+    {'runtime':runtime,'observability':observability,'collect':collect,'stop':stop_created_cluster}[sys.argv[1]]()
