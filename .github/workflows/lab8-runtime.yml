@@ -1,0 +1,87 @@
+# PROPOSAL ONLY. Publication and execution require Silvia's explicit approval.
+name: lab8-runtime-isolated
+on:
+  push:
+    branches: [clase8/validacion-aislada]
+    paths: [.github/workflows/lab8-runtime.yml, labs/clase8/runner/**]
+permissions:
+  contents: read
+concurrency:
+  group: unlu-lab8-runtime-isolated
+  cancel-in-progress: false
+jobs:
+  runtime:
+    if: github.repository == 'silvitagomez572-alt/unlu-lab4-infra-cloud-template'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      LAB8_SOURCE_SHA: d4b159c57e208a8a433ff6ac97b3b94098518aa0
+      LAB8_AUTHORIZED_RUN: '1'
+      KUBECONFIG: ${{ runner.temp }}/lab8-kubeconfig
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: d4b159c57e208a8a433ff6ac97b3b94098518aa0
+          path: source
+          persist-credentials: false
+      - name: Capacity and official pinned tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence "$RUNNER_TEMP/lab8-tools"
+          free -b | tee evidence/runner-memory.txt
+          df -B1 . | tee evidence/runner-disk.txt
+          test "$(awk '/MemAvailable/ {print $2}' /proc/meminfo)" -ge 6291456
+          test "$(df -B1 . | awk 'NR==2 {print $4}')" -ge 8589934592
+          test "$(git -C source rev-parse HEAD)" = "$LAB8_SOURCE_SHA"
+          cd "$RUNNER_TEMP/lab8-tools"
+          curl -fsSLO --retry 2 https://github.com/k3d-io/k3d/releases/download/v5.8.3/k3d-linux-amd64
+          curl -fsSLO --retry 2 https://github.com/k3d-io/k3d/releases/download/v5.8.3/checksums.txt
+          grep ' k3d-linux-amd64$' checksums.txt | sha256sum -c -
+          chmod +x k3d-linux-amd64
+          sudo install k3d-linux-amd64 /usr/local/bin/k3d
+          curl -fsSLO --retry 2 https://get.helm.sh/helm-v4.3.1-linux-amd64.tar.gz
+          curl -fsSLO --retry 2 https://get.helm.sh/helm-v4.3.1-linux-amd64.tar.gz.sha256sum
+          sha256sum -c helm-v4.3.1-linux-amd64.tar.gz.sha256sum
+          tar -xzf helm-v4.3.1-linux-amd64.tar.gz
+          sudo install linux-amd64/helm /usr/local/bin/helm
+      - name: Build the missing deployable PoW image only
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build --platform linux/amd64 -t unlu-lab8-pow:lab8-local source/pow 2>&1 | tee evidence/image-build.log
+          docker image inspect unlu-lab8-pow:lab8-local --format '{{.Id}} {{.Os}}/{{.Architecture}}' | tee evidence/image-identity.txt
+      - name: Create isolated k3d and import image
+        shell: bash
+        run: |
+          set -euo pipefail
+          k3d cluster create unlu-lab8-ci --image rancher/k3s:v1.35.5-k3s1 --servers 1 --agents 0 --servers-memory 6g --no-lb --k3s-arg '--disable=traefik@server:0' --kubeconfig-update-default=false --kubeconfig-switch-context=false --wait --timeout 120s
+          k3d kubeconfig get unlu-lab8-ci > "$KUBECONFIG"
+          chmod 600 "$KUBECONFIG"
+          k3d image import unlu-lab8-pow:lab8-local -c unlu-lab8-ci
+          docker exec k3d-unlu-lab8-ci-server-0 k3s ctr images ls | tee evidence/runtime-images.txt
+      - name: Pod, PVC, mining, recreation and three independent chains
+        run: python3 labs/clase8/runner/verify_runtime.py runtime
+      - name: Prepare real Grafana browser capture
+        run: |
+          python3 -m pip install --disable-pip-version-check playwright==1.56.0
+          python3 -m playwright install --with-deps chromium
+      - name: Dedicated Prometheus and Grafana in this runner
+        run: python3 labs/clase8/runner/verify_runtime.py observability
+      - name: Preserve diagnostics and hashes
+        id: collect
+        if: always()
+        run: python3 labs/clase8/runner/verify_runtime.py collect
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.collect.outputs.upload_allowed == 'true'
+        with:
+          name: lab8-runtime-${{ github.run_id }}
+          path: evidence/
+          retention-days: 1
+          if-no-files-found: error
+          include-hidden-files: false
+# No GCP credentials, no id-token permission, no merge and no local kubeconfig.
+# GitHub disposes only this new runner when the job ends. Evidence is uploaded first.

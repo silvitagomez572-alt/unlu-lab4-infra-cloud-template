@@ -1,0 +1,26 @@
+# Overrides for the new isolated runner only; never apply to the Windows cluster.
+prometheus:
+  prometheusSpec:
+    retention: 1h
+    resources:
+      requests:
+        memory: 256Mi
+      limits:
+        memory: 768Mi
+grafana:
+  admin:
+    existingSecret: lab8-grafana-auth
+    userKey: admin-user
+    passwordKey: admin-password
+  additionalDataSources: []
+  env:
+    GF_PLUGINS_PREINSTALL_DISABLED: 'true'
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  sidecar:
+    dashboards:
+      searchNamespace: bc-clase8
+alertmanager:
+  enabled: false
