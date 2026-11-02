@@ -17,7 +17,6 @@ jobs:
     env:
       LAB8_SOURCE_SHA: d4b159c57e208a8a433ff6ac97b3b94098518aa0
       LAB8_AUTHORIZED_RUN: '1'
-      KUBECONFIG: ${{ runner.temp }}/lab8-kubeconfig
     steps:
       - uses: actions/checkout@v4
         with:
@@ -32,6 +31,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p evidence "$RUNNER_TEMP/lab8-tools"
+          printf 'KUBECONFIG=%s/lab8-kubeconfig\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
           free -b | tee evidence/runner-memory.txt
           df -B1 . | tee evidence/runner-disk.txt
           test "$(awk '/MemAvailable/ {print $2}' /proc/meminfo)" -ge 6291456
