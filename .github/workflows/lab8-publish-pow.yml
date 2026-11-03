@@ -1,0 +1,128 @@
+name: lab8-publish-pow-only
+on:
+  push:
+    branches: [clase8/publicacion-pow]
+    paths: [.github/workflows/lab8-publish-pow.yml]
+permissions:
+  contents: read
+concurrency:
+  group: lab8-publish-pow-only
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.repository == 'silvitagomez572-alt/unlu-lab4-infra-cloud-template' && github.ref == 'refs/heads/clase8/publicacion-pow'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      PROJECT_ID: unlu-tp3-sgomez-20261019
+      REGION: us-central1
+      AR_REPO: infra-cloud-template
+      SOURCE_SHA: d4b159c57e208a8a433ff6ac97b3b94098518aa0
+      IMAGE: us-central1-docker.pkg.dev/unlu-tp3-sgomez-20261019/infra-cloud-template/pow
+      CLOUDSDK_CORE_DISABLE_PROMPTS: '1'
+      CLOUDSDK_CORE_DISABLE_USAGE_REPORTING: 'true'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: d4b159c57e208a8a433ff6ac97b3b94098518aa0
+          path: source
+          persist-credentials: false
+      - name: Record source and build only PoW
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C source rev-parse HEAD)" = "$SOURCE_SHA"
+          mkdir evidence-publish
+          git -C source show -s --format=fuller HEAD > evidence-publish/source-commit.txt
+          git -C source ls-tree HEAD pow > evidence-publish/source-pow-tree.txt
+          printf '%s\n' "$GITHUB_REPOSITORY" "$GITHUB_REF" "$GITHUB_SHA" "$GITHUB_RUN_ID" > evidence-publish/workflow-context.txt
+          docker build --platform linux/amd64 --label "org.opencontainers.image.revision=$SOURCE_SHA" -t "$IMAGE:$SOURCE_SHA" source/pow 2>&1 | tee evidence-publish/build.log
+          size=$(docker image inspect "$IMAGE:$SOURCE_SHA" --format '{{.Size}}')
+          test "$size" -le 268435456
+          printf '%s\n' "$size" > evidence-publish/image-size-bytes.txt
+          docker image inspect "$IMAGE:$SOURCE_SHA" --format '{{json .Config.Labels}}' > evidence-publish/image-labels.json
+      - id: auth
+        name: Authenticate through GitHub OIDC
+        uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2
+        with:
+          project_id: unlu-tp3-sgomez-20261019
+          workload_identity_provider: projects/961770761581/locations/global/workloadIdentityPools/github-pool/providers/github-provider
+          service_account: ci-artifact-writer@unlu-tp3-sgomez-20261019.iam.gserviceaccount.com
+          cleanup_credentials: true
+          create_credentials_file: true
+      - uses: google-github-actions/setup-gcloud@e427ad8a34f8676edf47cf7d7925499adf3eb74f # v2
+      - name: Check repository, budget guard and absent tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcloud artifacts repositories describe "$AR_REPO" --location="$REGION" --project="$PROJECT_ID" --format=json > evidence-publish/repository.json
+          gcloud artifacts repositories list --location=all --project="$PROJECT_ID" --format=json > evidence-publish/repositories.json
+          gcloud artifacts docker images list "$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO" --include-tags --project="$PROJECT_ID" --format=json > evidence-publish/images-before.json
+          python3 - <<'PY'
+          import datetime,json,os
+          repo=json.load(open('evidence-publish/repository.json'))
+          assert repo['format']=='DOCKER' and repo['mode']=='STANDARD_REPOSITORY'
+          assert repo['vulnerabilityScanningConfig']['enablementState']=='SCANNING_DISABLED'
+          repos=json.load(open('evidence-publish/repositories.json'))
+          assert len(repos)==1 and repos[0]['name']==repo['name']
+          current=int(repos[0]['sizeBytes'])
+          size=int(open('evidence-publish/image-size-bytes.txt').read())
+          assert current+size<536870912,'Stop: conservative total exceeds 0.5 GiB'
+          rows=json.load(open('evidence-publish/images-before.json'))
+          assert not any(r['package']==os.environ['IMAGE'] and os.environ['SOURCE_SHA'] in r.get('tags',[]) for r in rows),'Tag exists: do not overwrite'
+          json.dump({'utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),'oidc_authenticated_read':'PASS','service_account':'ci-artifact-writer@'+os.environ['PROJECT_ID']+'.iam.gserviceaccount.com','repository':os.environ['GITHUB_REPOSITORY'],'ref':os.environ['GITHUB_REF'],'credential_kind':'short-lived WIF; no service-account key'},open('evidence-publish/authentication.json','w'),indent=2)
+          json.dump({'existing_bytes':current,'image_uncompressed_bytes':size,'conservative_total_bytes':current+size,'free_storage_limit_bytes':536870912,'note':'Shared billing-account free tier; no scanning or additional services enabled; metadata-only verification avoids image-download egress.'},open('evidence-publish/cost-guard.json','w'),indent=2)
+          PY
+      - name: Publish exactly one tag and verify registry digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
+          docker push "$IMAGE:$SOURCE_SHA" 2>&1 | tee evidence-publish/push.log
+          gcloud artifacts docker images describe "$IMAGE:$SOURCE_SHA" --project="$PROJECT_ID" --format=json > evidence-publish/image-after.json
+          gcloud artifacts docker images list "$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO" --include-tags --project="$PROJECT_ID" --format=json > evidence-publish/images-after.json
+          python3 - <<'PY'
+          import datetime,json,re,os
+          data=json.load(open('evidence-publish/image-after.json'))
+          digest=data['image_summary']['digest']
+          matches=re.findall(r'digest:\s+(sha256:[a-f0-9]{64})',open('evidence-publish/push.log').read())
+          assert len(matches)==1 and matches[0]==digest
+          before=json.load(open('evidence-publish/images-before.json'))
+          after=json.load(open('evidence-publish/images-after.json'))
+          found=[r for r in after if r['package']==os.environ['IMAGE'] and os.environ['SOURCE_SHA'] in r.get('tags',[])]
+          assert len(found)==1 and found[0]['version']==digest
+          for old in before:
+              equivalent=[r for r in after if r['package']==old['package'] and r['version']==old['version']]
+              assert len(equivalent)==1 and set(old.get('tags',[]))<=set(equivalent[0].get('tags',[])),'Preexisting image/tag changed'
+          json.dump({'utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),'source_commit':os.environ['SOURCE_SHA'],'image':os.environ['IMAGE'],'tag':os.environ['SOURCE_SHA'],'digest':digest,'result':'PASS: push, registry describe and tag listing agree','preexisting_images_and_tags_preserved':True},open('evidence-publish/verified-digest.json','w'),indent=2)
+          PY
+      - id: seal
+        name: Preserve logs and SHA-256 without credentials
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence-publish
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,json,re
+          root=Path('evidence-publish')
+          files=[]
+          for p in sorted(root.iterdir()):
+              assert p.is_file() and not p.is_symlink()
+              data=p.read_bytes()
+              assert not re.search(rb'-----BEGIN .*PRIVATE KEY|"refresh_token"\s*:|ya29\.[A-Za-z0-9_-]{20}',data),'Sensitive material: block artifact'
+              files.append({'file':p.name,'bytes':len(data),'sha256':hashlib.sha256(data).hexdigest()})
+          assert sum(x['bytes'] for x in files)<2*1024*1024-8192,'Artifact exceeds 2 MiB guard'
+          (root/'MANIFIESTO_SHA256.json').write_text(json.dumps({'algorithm':'SHA-256','files':files},indent=2))
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always() && !cancelled() && steps.seal.outcome == 'success'
+        with:
+          name: lab8-oidc-${{ github.run_id }}
+          path: evidence-publish/
+          retention-days: 1
+          if-no-files-found: error
